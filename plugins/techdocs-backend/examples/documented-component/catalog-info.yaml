@@ -20,6 +20,7 @@ metadata:
   annotations:
     backstage.io/techdocs-entity: component:default/documented-component
     backstage.io/techdocs-entity-path: /inner-component-docs
+    foo.com/techdocs-versions: v1.0.0, v2.0.0
 spec:
   type: service
   lifecycle: experimental
