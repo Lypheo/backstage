@@ -33,9 +33,14 @@ import {
   HeaderWorldClock,
   type ClockConfig,
 } from '@backstage/plugin-home';
+import { default as techdocsPlugin } from '@backstage/plugin-techdocs/alpha';
+import { techdocsStorageApiRef } from '@backstage/plugin-techdocs-react';
 import {
-  default as techdocsPlugin,
-} from '@backstage/plugin-techdocs/alpha';
+  configApiRef,
+  discoveryApiRef,
+  fetchApiRef,
+} from '@backstage/core-plugin-api';
+import { TechDocsStorageClient } from '@backstage/plugin-techdocs';
 import appVisualizerPlugin from '@backstage/plugin-app-visualizer';
 import { convertLegacyAppRoot } from '@backstage/core-compat-api';
 import { FlatRoutes } from '@backstage/core-app-api';
@@ -48,7 +53,7 @@ import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import InfoIcon from '@material-ui/icons/Info';
 import { techDocsVersionsAddonModule } from './modules/techDocsVersionsAddonModule';
 import { techDocsReportIssueAddonModule } from '@backstage/plugin-techdocs-module-addons-contrib/alpha';
-
+import { VersionedTechDocsStorageClient } from './components/techdocs/VersionedTechDocsStorageClient';
 
 const clockConfigs: ClockConfig[] = [
   { label: 'NYC', timeZone: 'America/New_York' },
@@ -97,6 +102,30 @@ const customizedCatalog = catalogPlugin.withOverrides({
   ],
 });
 
+const customizedTechdocs = techdocsPlugin.withOverrides({
+  extensions: [
+    techdocsPlugin.getExtension('api:techdocs/storage').override({
+      params: defineParams =>
+        defineParams({
+          api: techdocsStorageApiRef,
+          deps: {
+            configApi: configApiRef,
+            discoveryApi: discoveryApiRef,
+            fetchApi: fetchApiRef,
+          },
+          factory: ({ configApi, discoveryApi, fetchApi }) =>
+            new VersionedTechDocsStorageClient(
+              new TechDocsStorageClient({
+                configApi,
+                discoveryApi,
+                fetchApi,
+              }),
+            ),
+        }),
+    }),
+  ],
+});
+
 const notFoundErrorPageModule = createFrontendModule({
   pluginId: 'app',
   extensions: [notFoundErrorPage],
@@ -112,7 +141,7 @@ const app = createApp({
   features: [
     customizedCatalog,
     pagesPlugin,
-    techdocsPlugin,
+    customizedTechdocs,
     techDocsVersionsAddonModule,
     techDocsReportIssueAddonModule,
     userSettingsPlugin,
