@@ -20,14 +20,17 @@ import type {
 } from '@backstage/plugin-techdocs-react';
 
 const VERSION_QUERY_PARAM = 'version';
-const VERSION_STORAGE_KEY_PREFIX = 'techdocs-version::';
 
-const joinPath = (...parts: string[]) =>
-  parts
-    .map(part => part.trim())
-    .filter(Boolean)
-    .join('/')
-    .replace(/^\/+|\/+$/gu, '');
+const trimSlashes = (value: string) => {
+  let result = value.trim();
+  while (result.startsWith('/')) {
+    result = result.slice(1);
+  }
+  while (result.endsWith('/')) {
+    result = result.slice(0, -1);
+  }
+  return result;
+};
 
 const getVersionFromSearch = () => {
   if (typeof window === 'undefined') {
@@ -41,61 +44,26 @@ const getVersionFromSearch = () => {
   return value || undefined;
 };
 
-const getEntityKeyFromPath = () => {
-  if (typeof window === 'undefined') {
-    return undefined;
-  }
-
-  const match = window.location.pathname.match(
-    /^\/docs\/([^/]+)\/([^/]+)\/([^/]+)(?:\/|$)/u,
-  );
-
-  if (!match) {
-    return undefined;
-  }
-
-  const [, namespace, kind, name] = match;
-  return `${namespace}/${kind}/${name}`;
-};
-
-const getStoredVersion = () => {
-  if (typeof window === 'undefined') {
-    return undefined;
-  }
-
-  const entityKey = getEntityKeyFromPath();
-  if (!entityKey) {
-    return undefined;
-  }
-
-  return (
-    localStorage.getItem(`${VERSION_STORAGE_KEY_PREFIX}${entityKey}`)?.trim() ||
-    undefined
-  );
-};
-
-const getActiveVersion = () => getVersionFromSearch() ?? getStoredVersion();
-
 const addVersionPrefix = (path: string) => {
-  const activeVersion = getActiveVersion();
-  if (!activeVersion) {
+  const selectedVersion = getVersionFromSearch();
+  if (!selectedVersion) {
     return path;
   }
 
-  const normalizedPath = path.replace(/^\/+|\/+$/gu, '');
+  const normalizedPath = trimSlashes(path);
 
   if (!normalizedPath) {
-    return activeVersion;
+    return selectedVersion;
   }
 
   if (
-    normalizedPath === activeVersion ||
-    normalizedPath.startsWith(`${activeVersion}/`)
+    normalizedPath === selectedVersion ||
+    normalizedPath.startsWith(`${selectedVersion}/`)
   ) {
     return normalizedPath;
   }
 
-  return joinPath(activeVersion, normalizedPath);
+  return `${selectedVersion}/${normalizedPath}`;
 };
 
 export class VersionedTechDocsStorageClient implements TechDocsStorageApi {

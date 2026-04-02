@@ -27,21 +27,36 @@ import { useLocation, useParams } from 'react-router-dom';
 
 const TECHDOCS_VERSIONS_ANNOTATION = 'foo.com/techdocs-versions';
 const VERSION_QUERY_PARAM = 'version';
-const VERSION_STORAGE_KEY_PREFIX = 'techdocs-version::';
 const ROOT_VERSION_VALUE = '__root__';
 const ROOT_VERSION_LABEL = 'Root (default)';
 
+const trimSlashes = (value?: string) => {
+  let result = (value ?? '').trim();
+  while (result.startsWith('/')) {
+    result = result.slice(1);
+  }
+  while (result.endsWith('/')) {
+    result = result.slice(0, -1);
+  }
+  return result;
+};
+
+const trimTrailingSlashes = (value: string) => {
+  let result = value;
+  while (result.endsWith('/')) {
+    result = result.slice(0, -1);
+  }
+  return result;
+};
+
 const joinPath = (...parts: string[]) =>
   parts
-    .map(part => part.trim())
+    .map(part => trimSlashes(part))
     .filter(Boolean)
-    .join('/')
-    .replace(/^\/+|\/+$/gu, '');
-
-const normalizePath = (path?: string) => path?.replace(/^\/+|\/+$/gu, '') ?? '';
+    .join('/');
 
 const toIndexPath = (path: string) => {
-  const normalizedPath = normalizePath(path);
+  const normalizedPath = trimSlashes(path);
   if (!normalizedPath) {
     return 'index.html';
   }
@@ -66,7 +81,8 @@ const parseVersions = (rawValue?: string): string[] => {
   }
 
   return rawValue
-    .split(/[\n,]/u)
+    .split('\n')
+    .flatMap(part => part.split(','))
     .map(value => value.trim())
     .filter(Boolean);
 };
@@ -94,26 +110,8 @@ export const TechDocsVersionsAddon = () => {
     [versions],
   );
 
-  const entityVersionStorageKey = useMemo(
-    () =>
-      `${VERSION_STORAGE_KEY_PREFIX}${entityRef.namespace}/${entityRef.kind}/${entityRef.name}`,
-    [entityRef.kind, entityRef.name, entityRef.namespace],
-  );
-
   const getVersionFromSearch = () =>
     new URLSearchParams(location.search).get(VERSION_QUERY_PARAM)?.trim() ?? '';
-
-  const getStoredVersion = () =>
-    localStorage.getItem(entityVersionStorageKey)?.trim() ?? '';
-
-  const persistVersion = (value: string) => {
-    if (!value) {
-      localStorage.removeItem(entityVersionStorageKey);
-      return;
-    }
-
-    localStorage.setItem(entityVersionStorageKey, value);
-  };
 
   const toSelectedValue = (version?: string) =>
     version ? version : ROOT_VERSION_VALUE;
@@ -147,7 +145,7 @@ export const TechDocsVersionsAddon = () => {
       toIndexPath(versionPath),
     );
     const response = await fetchApi.fetch(
-      `${storageUrl.replace(/\/+$/u, '')}/${docsPath}`,
+      `${trimTrailingSlashes(storageUrl)}/${docsPath}`,
     );
 
     return response.ok;
@@ -156,31 +154,13 @@ export const TechDocsVersionsAddon = () => {
   const [selectedVersion, setSelectedVersion] = useState(ROOT_VERSION_VALUE);
 
   useEffect(() => {
-    if (!versions.length) {
-      setSelectedVersion(ROOT_VERSION_VALUE);
-      return;
-    }
-
     const urlVersion = getVersionFromSearch();
-    const storedVersion = getStoredVersion();
     const initialVersion =
-      (urlVersion && versions.includes(urlVersion) && urlVersion) ||
-      (storedVersion && versions.includes(storedVersion) && storedVersion) ||
-      '';
+      urlVersion && versions.includes(urlVersion) ? urlVersion : '';
 
     setSelectedVersion(toSelectedValue(initialVersion));
-    persistVersion(initialVersion);
-
-    if (urlVersion !== initialVersion) {
-      const targetUrl = buildUrlWithVersion(
-        location.pathname,
-        initialVersion,
-        location.hash,
-      );
-      window.location.replace(targetUrl);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versions, entityVersionStorageKey, location.pathname, location.search]);
+  }, [versions, location.search]);
 
   if (!versions.length) {
     return null;
@@ -194,7 +174,7 @@ export const TechDocsVersionsAddon = () => {
       return;
     }
 
-    const normalizedCurrentPath = normalizePath(currentPath);
+    const normalizedCurrentPath = trimSlashes(currentPath);
     const samePageInTargetVersion = nextVersion
       ? joinPath(nextVersion, normalizedCurrentPath)
       : normalizedCurrentPath;
@@ -216,7 +196,6 @@ export const TechDocsVersionsAddon = () => {
       }
 
       setSelectedVersion(nextValue);
-      persistVersion(nextVersion);
       const targetPath = joinPath(
         '/docs',
         entityRef.namespace,
@@ -224,7 +203,7 @@ export const TechDocsVersionsAddon = () => {
         entityRef.name,
         destinationPath,
       );
-      const pathname = `/${targetPath}`.replace(/\/{2,}/gu, '/');
+      const pathname = `/${targetPath}`;
       const targetUrl = buildUrlWithVersion(
         pathname,
         nextVersion,
@@ -241,7 +220,6 @@ export const TechDocsVersionsAddon = () => {
       });
 
       setSelectedVersion(nextValue);
-      persistVersion(nextVersion);
 
       const pathname = `/docs/${entityRef.namespace}/${entityRef.kind}/${entityRef.name}`;
       const targetUrl = buildUrlWithVersion(
