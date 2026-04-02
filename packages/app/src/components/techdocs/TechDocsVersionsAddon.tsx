@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import FormControl from '@material-ui/core/FormControl';
 import InputLabel from '@material-ui/core/InputLabel';
 import MenuItem from '@material-ui/core/MenuItem';
@@ -73,7 +73,7 @@ const parseVersions = (rawValue?: string): string[] => {
 };
 
 export const TechDocsVersionsAddon = () => {
-  const { entityMetadata, entityRef } = useTechDocsReaderPage();
+  const { entityMetadata, entityRef, shadowRoot } = useTechDocsReaderPage();
   const techdocsStorageApi = useApi(techdocsStorageApiRef);
   const alertApi = useApi(alertApiRef);
   const fetchApi = useApi(fetchApiRef);
@@ -137,6 +137,81 @@ export const TechDocsVersionsAddon = () => {
   };
 
   const selectedValue = toSelectedValue(currentPathVersion);
+
+  useEffect(() => {
+    if (!shadowRoot || !currentPathVersion) {
+      return;
+    }
+
+    const baseEntityPath = `/docs/${entityRef.namespace}/${entityRef.kind}/${entityRef.name}`;
+    const kindPrefixPath = `/docs/${entityRef.namespace}/${entityRef.kind}`;
+
+    const links = Array.from(
+      shadowRoot.querySelectorAll<HTMLAnchorElement>('a[href]'),
+    );
+    for (const link of links) {
+      const href = link.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('mailto:')) {
+        continue;
+      }
+
+      let url: URL;
+      try {
+        url = new URL(href, window.location.href);
+      } catch {
+        continue;
+      }
+
+      if (url.origin !== window.location.origin) {
+        continue;
+      }
+
+      const normalizedPath = trimSlashes(url.pathname);
+      const normalizedBaseEntityPath = trimSlashes(baseEntityPath);
+      const normalizedKindPrefixPath = trimSlashes(kindPrefixPath);
+
+      if (normalizedPath.startsWith(normalizedBaseEntityPath)) {
+        const remainder = trimSlashes(
+          normalizedPath.slice(normalizedBaseEntityPath.length),
+        );
+
+        if (
+          remainder &&
+          remainder !== currentPathVersion &&
+          !remainder.startsWith(`${currentPathVersion}/`)
+        ) {
+          url.pathname = `/${joinPath(
+            baseEntityPath,
+            currentPathVersion,
+            remainder,
+          )}`;
+          link.setAttribute('href', url.toString());
+        }
+        continue;
+      }
+
+      if (normalizedPath.startsWith(normalizedKindPrefixPath)) {
+        const remainderAfterKind = trimSlashes(
+          normalizedPath.slice(normalizedKindPrefixPath.length),
+        );
+
+        if (!remainderAfterKind.startsWith(`${entityRef.name}/`)) {
+          url.pathname = `/${joinPath(
+            baseEntityPath,
+            currentPathVersion,
+            remainderAfterKind,
+          )}`;
+          link.setAttribute('href', url.toString());
+        }
+      }
+    }
+  }, [
+    currentPathVersion,
+    entityRef.kind,
+    entityRef.name,
+    entityRef.namespace,
+    shadowRoot,
+  ]);
 
   const handleVersionChange = async (nextValue: string) => {
     const nextVersion = fromSelectedValue(nextValue);
@@ -202,9 +277,12 @@ export const TechDocsVersionsAddon = () => {
         labelId="techdocs-version-select-label"
         value={selectedValue}
         displayEmpty
-        renderValue={value =>
-          value === ROOT_VERSION_VALUE ? ROOT_VERSION_LABEL : String(value)
-        }
+        renderValue={value => {
+          const stringValue = String(value ?? ROOT_VERSION_VALUE);
+          return stringValue === ROOT_VERSION_VALUE
+            ? ROOT_VERSION_LABEL
+            : stringValue;
+        }}
         onChange={event => {
           void handleVersionChange(String(event.target.value));
         }}
