@@ -1,5 +1,4 @@
-
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import FormControl from '@material-ui/core/FormControl';
 import InputLabel from '@material-ui/core/InputLabel';
 import MenuItem from '@material-ui/core/MenuItem';
@@ -40,25 +39,6 @@ const joinPath = (...parts: string[]) =>
     .map(part => trimSlashes(part))
     .filter(Boolean)
     .join('/');
-
-const stripVersionPrefix = (path: string, version?: string) => {
-  const normalizedPath = trimSlashes(path);
-  const normalizedVersion = trimSlashes(version ?? '');
-
-  if (!normalizedVersion) {
-    return normalizedPath;
-  }
-
-  if (normalizedPath === normalizedVersion) {
-    return '';
-  }
-
-  if (normalizedPath.startsWith(`${normalizedVersion}/`)) {
-    return normalizedPath.slice(normalizedVersion.length + 1);
-  }
-
-  return normalizedPath;
-};
 
 const toIndexPath = (path: string) => {
   const normalizedPath = trimSlashes(path);
@@ -115,8 +95,17 @@ export const TechDocsVersionsAddon = () => {
     [versions],
   );
 
-  const getVersionFromSearch = () =>
-    new URLSearchParams(location.search).get(VERSION_QUERY_PARAM)?.trim() ?? '';
+  const normalizedCurrentPath = trimSlashes(currentPath);
+  const currentPathParts = normalizedCurrentPath
+    ? normalizedCurrentPath.split('/')
+    : [];
+  const currentPathVersion =
+    currentPathParts.length > 0 && versions.includes(currentPathParts[0])
+      ? currentPathParts[0]
+      : '';
+  const currentRelativePath = currentPathVersion
+    ? currentPathParts.slice(1).join('/')
+    : normalizedCurrentPath;
 
   const toSelectedValue = (version?: string) =>
     version ? version : ROOT_VERSION_VALUE;
@@ -124,20 +113,11 @@ export const TechDocsVersionsAddon = () => {
   const fromSelectedValue = (value: string) =>
     value === ROOT_VERSION_VALUE ? '' : value;
 
-  const buildUrlWithVersion = (
-    pathname: string,
-    version: string,
-    hash: string,
-  ) => {
+  const buildUrl = (pathname: string, hash: string) => {
     const searchParams = new URLSearchParams(location.search);
-
-    if (version) {
-      searchParams.set(VERSION_QUERY_PARAM, version);
-    } else {
-      searchParams.delete(VERSION_QUERY_PARAM);
-    }
-
+    searchParams.delete(VERSION_QUERY_PARAM);
     const search = searchParams.toString();
+
     return `${pathname}${search ? `?${search}` : ''}${hash}`;
   };
 
@@ -156,30 +136,16 @@ export const TechDocsVersionsAddon = () => {
     return response.ok;
   };
 
-  const [selectedVersion, setSelectedVersion] = useState(ROOT_VERSION_VALUE);
-
-  useEffect(() => {
-    const urlVersion = getVersionFromSearch();
-    const initialVersion =
-      urlVersion && versions.includes(urlVersion) ? urlVersion : '';
-
-    setSelectedVersion(toSelectedValue(initialVersion));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versions, location.search]);
+  const selectedValue = toSelectedValue(currentPathVersion);
 
   const handleVersionChange = async (nextValue: string) => {
     const nextVersion = fromSelectedValue(nextValue);
-    const selectedActualVersion = fromSelectedValue(selectedVersion);
+    const selectedActualVersion = currentPathVersion;
 
     if (nextVersion === selectedActualVersion) {
       return;
     }
 
-    const normalizedCurrentPath = trimSlashes(currentPath);
-    const currentRelativePath = stripVersionPrefix(
-      normalizedCurrentPath,
-      selectedActualVersion,
-    );
     const samePageInTargetVersion = nextVersion
       ? joinPath(nextVersion, currentRelativePath)
       : currentRelativePath;
@@ -200,7 +166,6 @@ export const TechDocsVersionsAddon = () => {
         });
       }
 
-      setSelectedVersion(nextValue);
       const targetPath = joinPath(
         '/docs',
         entityRef.namespace,
@@ -210,13 +175,8 @@ export const TechDocsVersionsAddon = () => {
         destinationPath,
       );
       const pathname = `/${targetPath}`;
-      const targetUrl = buildUrlWithVersion(
-        pathname,
-        nextVersion,
-        location.hash,
-      );
+      const targetUrl = buildUrl(pathname, location.hash);
       window.location.assign(targetUrl);
-      return;
     } catch {
       alertApi.post({
         message:
@@ -225,28 +185,11 @@ export const TechDocsVersionsAddon = () => {
         display: 'transient',
       });
 
-      setSelectedVersion(nextValue);
-
       const pathname = `/docs/${entityRef.namespace}/${entityRef.kind}/${entityRef.name}`;
-      const targetUrl = buildUrlWithVersion(
-        pathname,
-        nextVersion,
-        location.hash,
-      );
+      const targetUrl = buildUrl(pathname, location.hash);
       window.location.assign(targetUrl);
-      return;
     }
   };
-
-  useEffect(() => {
-    const urlVersion = getVersionFromSearch();
-    const selectedValueFromUrl = toSelectedValue(urlVersion);
-
-    if (selectedVersion !== selectedValueFromUrl) {
-      setSelectedVersion(selectedValueFromUrl);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.search]);
 
   if (!versions.length) {
     return null;
@@ -257,7 +200,7 @@ export const TechDocsVersionsAddon = () => {
       <InputLabel id="techdocs-version-select-label">Version</InputLabel>
       <Select
         labelId="techdocs-version-select-label"
-        value={selectedVersion}
+        value={selectedValue}
         displayEmpty
         renderValue={value =>
           value === ROOT_VERSION_VALUE ? ROOT_VERSION_LABEL : String(value)
