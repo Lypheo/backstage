@@ -1,18 +1,4 @@
-/*
- * Copyright 2026 The Backstage Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+
 import { useEffect, useMemo, useState } from 'react';
 import FormControl from '@material-ui/core/FormControl';
 import InputLabel from '@material-ui/core/InputLabel';
@@ -25,7 +11,7 @@ import {
 } from '@backstage/plugin-techdocs-react';
 import { useLocation, useParams } from 'react-router-dom';
 
-const TECHDOCS_VERSIONS_ANNOTATION = 'foo.com/techdocs-versions';
+const TECHDOCS_VERSIONS_ANNOTATION = 'f-i.de/techdocs-versions';
 const VERSION_QUERY_PARAM = 'version';
 const ROOT_VERSION_VALUE = '__root__';
 const ROOT_VERSION_LABEL = 'Root (default)';
@@ -54,6 +40,25 @@ const joinPath = (...parts: string[]) =>
     .map(part => trimSlashes(part))
     .filter(Boolean)
     .join('/');
+
+const stripVersionPrefix = (path: string, version?: string) => {
+  const normalizedPath = trimSlashes(path);
+  const normalizedVersion = trimSlashes(version ?? '');
+
+  if (!normalizedVersion) {
+    return normalizedPath;
+  }
+
+  if (normalizedPath === normalizedVersion) {
+    return '';
+  }
+
+  if (normalizedPath.startsWith(`${normalizedVersion}/`)) {
+    return normalizedPath.slice(normalizedVersion.length + 1);
+  }
+
+  return normalizedPath;
+};
 
 const toIndexPath = (path: string) => {
   const normalizedPath = trimSlashes(path);
@@ -162,10 +167,6 @@ export const TechDocsVersionsAddon = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [versions, location.search]);
 
-  if (!versions.length) {
-    return null;
-  }
-
   const handleVersionChange = async (nextValue: string) => {
     const nextVersion = fromSelectedValue(nextValue);
     const selectedActualVersion = fromSelectedValue(selectedVersion);
@@ -175,16 +176,20 @@ export const TechDocsVersionsAddon = () => {
     }
 
     const normalizedCurrentPath = trimSlashes(currentPath);
+    const currentRelativePath = stripVersionPrefix(
+      normalizedCurrentPath,
+      selectedActualVersion,
+    );
     const samePageInTargetVersion = nextVersion
-      ? joinPath(nextVersion, normalizedCurrentPath)
-      : normalizedCurrentPath;
+      ? joinPath(nextVersion, currentRelativePath)
+      : currentRelativePath;
 
     try {
-      const hasEquivalentPage = normalizedCurrentPath
+      const hasEquivalentPage = currentRelativePath
         ? await fileExistsForVersionPath(samePageInTargetVersion)
         : true;
 
-      const destinationPath = hasEquivalentPage ? normalizedCurrentPath : '';
+      const destinationPath = hasEquivalentPage ? currentRelativePath : '';
 
       if (!hasEquivalentPage) {
         alertApi.post({
@@ -201,6 +206,7 @@ export const TechDocsVersionsAddon = () => {
         entityRef.namespace,
         entityRef.kind,
         entityRef.name,
+        nextVersion,
         destinationPath,
       );
       const pathname = `/${targetPath}`;
@@ -242,12 +248,20 @@ export const TechDocsVersionsAddon = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
 
+  if (!versions.length) {
+    return null;
+  }
+
   return (
     <FormControl variant="outlined" size="small">
       <InputLabel id="techdocs-version-select-label">Version</InputLabel>
       <Select
         labelId="techdocs-version-select-label"
         value={selectedVersion}
+        displayEmpty
+        renderValue={value =>
+          value === ROOT_VERSION_VALUE ? ROOT_VERSION_LABEL : String(value)
+        }
         onChange={event => {
           void handleVersionChange(String(event.target.value));
         }}

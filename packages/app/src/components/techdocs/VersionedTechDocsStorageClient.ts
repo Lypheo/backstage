@@ -1,18 +1,3 @@
-/*
- * Copyright 2026 The Backstage Authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 import type { CompoundEntityRef } from '@backstage/catalog-model';
 import type {
   SyncResult,
@@ -34,14 +19,14 @@ const trimSlashes = (value: string) => {
 
 const getVersionFromSearch = () => {
   if (typeof window === 'undefined') {
-    return undefined;
+    return null;
   }
 
   const value = new URLSearchParams(window.location.search)
     .get(VERSION_QUERY_PARAM)
     ?.trim();
 
-  return value || undefined;
+  return value ?? null;
 };
 
 const addVersionPrefix = (path: string) => {
@@ -69,30 +54,30 @@ const addVersionPrefix = (path: string) => {
 export class VersionedTechDocsStorageClient implements TechDocsStorageApi {
   constructor(private readonly delegate: TechDocsStorageApi) {}
 
-  getApiOrigin(): Promise<string> {
+  async getApiOrigin(): Promise<string> {
     return this.delegate.getApiOrigin();
   }
 
-  getStorageUrl(): Promise<string> {
+  async getStorageUrl(): Promise<string> {
     return this.delegate.getStorageUrl();
   }
 
-  getBuilder(): Promise<string> {
+  async getBuilder(): Promise<string> {
     return this.delegate.getBuilder();
   }
 
-  getEntityDocs(entityId: CompoundEntityRef, path: string): Promise<string> {
+  async getEntityDocs(entityId: CompoundEntityRef, path: string): Promise<string> {
     return this.delegate.getEntityDocs(entityId, addVersionPrefix(path));
   }
 
-  syncEntityDocs(
+  async syncEntityDocs(
     entityId: CompoundEntityRef,
     logHandler?: (line: string) => void,
   ): Promise<SyncResult> {
     return this.delegate.syncEntityDocs(entityId, logHandler);
   }
 
-  getBaseUrl(
+  async getBaseUrl(
     oldBaseUrl: string,
     entityId: CompoundEntityRef,
     path: string,
