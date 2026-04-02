@@ -27,7 +27,7 @@ const joinPath = (...parts: string[]) =>
     .map(part => part.trim())
     .filter(Boolean)
     .join('/')
-    .replace(/^\/+|\/+$/g, '');
+    .replace(/^\/+|\/+$/gu, '');
 
 const getVersionFromSearch = () => {
   if (typeof window === 'undefined') {
@@ -47,7 +47,7 @@ const getEntityKeyFromPath = () => {
   }
 
   const match = window.location.pathname.match(
-    /^\/docs\/([^/]+)\/([^/]+)\/([^/]+)(?:\/|$)/,
+    /^\/docs\/([^/]+)\/([^/]+)\/([^/]+)(?:\/|$)/u,
   );
 
   if (!match) {
@@ -82,7 +82,7 @@ const addVersionPrefix = (path: string) => {
     return path;
   }
 
-  const normalizedPath = path.replace(/^\/+|\/+$/g, '');
+  const normalizedPath = path.replace(/^\/+|\/+$/gu, '');
 
   if (!normalizedPath) {
     return activeVersion;
