@@ -1,4 +1,19 @@
-import { useEffect, useMemo } from 'react';
+/*
+ * Copyright 2026 The Backstage Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useEffect, useMemo, useState } from 'react';
 import FormControl from '@material-ui/core/FormControl';
 import InputLabel from '@material-ui/core/InputLabel';
 import MenuItem from '@material-ui/core/MenuItem';
@@ -10,9 +25,23 @@ import {
 } from '@backstage/plugin-techdocs-react';
 import { useLocation, useParams } from 'react-router-dom';
 
-const TECHDOCS_VERSIONS_ANNOTATION = 'f-i.de/techdocs-versions';
-const VERSION_QUERY_PARAM = 'version';
-const ROOT_VERSION_VALUE = '__root__';
+type MultiversionEntry = {
+  name?: string;
+  latest?: boolean;
+  ref?: string;
+  path?: string;
+};
+
+type VersionOption = {
+  id: string;
+  label: string;
+  ref: string;
+  prefix: string;
+  isRoot: boolean;
+};
+
+const MULTIVERSION_FILENAME = 'multiversion.json';
+const ROOT_VERSION_ID = '__root__';
 const ROOT_VERSION_LABEL = 'Root (default)';
 
 const trimSlashes = (value?: string) => {
@@ -49,76 +78,133 @@ const toIndexPath = (path: string) => {
   return `${normalizedPath}/index.html`;
 };
 
-const parseVersions = (rawValue?: string): string[] => {
-  if (!rawValue) {
-    return [];
+const toPathPrefix = (path?: string) => {
+  const normalizedPath = trimSlashes(path);
+  if (!normalizedPath || normalizedPath === '.') {
+    return '';
   }
 
-  try {
-    const parsed = JSON.parse(rawValue);
-    if (Array.isArray(parsed)) {
-      return parsed
-        .map(value => (typeof value === 'string' ? value.trim() : ''))
-        .filter(Boolean);
+  return normalizedPath;
+};
+
+const buildOptions = (
+  entries: Record<string, MultiversionEntry>,
+): VersionOption[] => {
+  const options = Object.entries(entries).map(([id, entry]) => {
+    const prefix = toPathPrefix(entry.path);
+    return {
+      id,
+      label: entry.name?.trim() || id,
+      ref: entry.ref?.trim() || id,
+      prefix,
+      isRoot: prefix === '',
+    };
+  });
+
+  if (!options.some(option => option.isRoot)) {
+    options.unshift({
+      id: ROOT_VERSION_ID,
+      label: ROOT_VERSION_LABEL,
+      ref: '',
+      prefix: '',
+      isRoot: true,
+    });
+  }
+
+  return options;
+};
+
+const resolveCurrentVersion = (
+  options: VersionOption[],
+  currentPath: string,
+): { selected: VersionOption; relativePath: string } => {
+  const normalizedPath = trimSlashes(currentPath);
+
+  const nonRootMatch = options.find(option => {
+    if (!option.prefix) {
+      return false;
     }
-  } catch {
-    // fall through to delimiter-based parsing
+
+    return (
+      normalizedPath === option.prefix ||
+      normalizedPath.startsWith(`${option.prefix}/`)
+    );
+  });
+
+  if (nonRootMatch) {
+    const relativePath = trimSlashes(
+      normalizedPath.slice(nonRootMatch.prefix.length),
+    );
+    return { selected: nonRootMatch, relativePath };
   }
 
-  return rawValue
-    .split('\n')
-    .flatMap(part => part.split(','))
-    .map(value => value.trim())
-    .filter(Boolean);
+  const rootOption = options.find(option => option.isRoot) ?? {
+    id: ROOT_VERSION_ID,
+    label: ROOT_VERSION_LABEL,
+    ref: '',
+    prefix: '',
+    isRoot: true,
+  };
+
+  return { selected: rootOption, relativePath: normalizedPath };
 };
 
 export const TechDocsVersionsAddon = () => {
-  const { entityMetadata, entityRef, shadowRoot } = useTechDocsReaderPage();
+  const { entityRef } = useTechDocsReaderPage();
   const techdocsStorageApi = useApi(techdocsStorageApiRef);
   const alertApi = useApi(alertApiRef);
   const fetchApi = useApi(fetchApiRef);
   const location = useLocation();
   const { '*': currentPath = '' } = useParams();
 
-  const versions = useMemo(
-    () =>
-      parseVersions(
-        entityMetadata.value?.metadata.annotations?.[
-          TECHDOCS_VERSIONS_ANNOTATION
-        ],
-      ),
-    [entityMetadata.value?.metadata.annotations],
+  const [versionOptions, setVersionOptions] = useState<VersionOption[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadVersions = async () => {
+      try {
+        const url = await techdocsStorageApi.getBaseUrl(
+          MULTIVERSION_FILENAME,
+          entityRef,
+          '',
+        );
+        const res = await fetchApi.fetch(url);
+        if (!res.ok) {
+          if (!cancelled) {
+            setVersionOptions([]);
+          }
+          return;
+        }
+
+        const json = (await res.json()) as Record<string, MultiversionEntry>;
+        if (!cancelled) {
+          setVersionOptions(buildOptions(json));
+        }
+      } catch {
+        if (!cancelled) {
+          setVersionOptions([]);
+        }
+      }
+    };
+
+    void loadVersions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entityRef, fetchApi, techdocsStorageApi]);
+
+  const currentVersion = useMemo(
+    () => resolveCurrentVersion(versionOptions, currentPath),
+    [currentPath, versionOptions],
   );
 
-  const versionOptions = useMemo(
-    () => [ROOT_VERSION_VALUE, ...versions],
-    [versions],
-  );
-
-  const normalizedCurrentPath = trimSlashes(currentPath);
-  const currentPathParts = normalizedCurrentPath
-    ? normalizedCurrentPath.split('/')
-    : [];
-  const currentPathVersion =
-    currentPathParts.length > 0 && versions.includes(currentPathParts[0])
-      ? currentPathParts[0]
-      : '';
-  const currentRelativePath = currentPathVersion
-    ? currentPathParts.slice(1).join('/')
-    : normalizedCurrentPath;
-
-  const toSelectedValue = (version?: string) =>
-    version ? version : ROOT_VERSION_VALUE;
-
-  const fromSelectedValue = (value: string) =>
-    value === ROOT_VERSION_VALUE ? '' : value;
+  const selectedValue = currentVersion.selected.id;
 
   const buildUrl = (pathname: string, hash: string) => {
-    const searchParams = new URLSearchParams(location.search);
-    searchParams.delete(VERSION_QUERY_PARAM);
-    const search = searchParams.toString();
-
-    return `${pathname}${search ? `?${search}` : ''}${hash}`;
+    const search = location.search;
+    return `${pathname}${search}${hash}`;
   };
 
   const fileExistsForVersionPath = async (versionPath: string) => {
@@ -136,101 +222,31 @@ export const TechDocsVersionsAddon = () => {
     return response.ok;
   };
 
-  const selectedValue = toSelectedValue(currentPathVersion);
-
-  useEffect(() => {
-    if (!shadowRoot || !currentPathVersion) {
-      return;
-    }
-
-    const baseEntityPath = `/docs/${entityRef.namespace}/${entityRef.kind}/${entityRef.name}`;
-    const kindPrefixPath = `/docs/${entityRef.namespace}/${entityRef.kind}`;
-
-    const links = Array.from(
-      shadowRoot.querySelectorAll<HTMLAnchorElement>('a[href]'),
-    );
-    for (const link of links) {
-      const href = link.getAttribute('href');
-      if (!href || href.startsWith('#') || href.startsWith('mailto:')) {
-        continue;
-      }
-
-      let url: URL;
-      try {
-        url = new URL(href, window.location.href);
-      } catch {
-        continue;
-      }
-
-      if (url.origin !== window.location.origin) {
-        continue;
-      }
-
-      const normalizedPath = trimSlashes(url.pathname);
-      const normalizedBaseEntityPath = trimSlashes(baseEntityPath);
-      const normalizedKindPrefixPath = trimSlashes(kindPrefixPath);
-
-      if (normalizedPath.startsWith(normalizedBaseEntityPath)) {
-        const remainder = trimSlashes(
-          normalizedPath.slice(normalizedBaseEntityPath.length),
-        );
-
-        if (
-          remainder &&
-          remainder !== currentPathVersion &&
-          !remainder.startsWith(`${currentPathVersion}/`)
-        ) {
-          url.pathname = `/${joinPath(
-            baseEntityPath,
-            currentPathVersion,
-            remainder,
-          )}`;
-          link.setAttribute('href', url.toString());
-        }
-        continue;
-      }
-
-      if (normalizedPath.startsWith(normalizedKindPrefixPath)) {
-        const remainderAfterKind = trimSlashes(
-          normalizedPath.slice(normalizedKindPrefixPath.length),
-        );
-
-        if (!remainderAfterKind.startsWith(`${entityRef.name}/`)) {
-          url.pathname = `/${joinPath(
-            baseEntityPath,
-            currentPathVersion,
-            remainderAfterKind,
-          )}`;
-          link.setAttribute('href', url.toString());
-        }
-      }
-    }
-  }, [
-    currentPathVersion,
-    entityRef.kind,
-    entityRef.name,
-    entityRef.namespace,
-    shadowRoot,
-  ]);
-
   const handleVersionChange = async (nextValue: string) => {
-    const nextVersion = fromSelectedValue(nextValue);
-    const selectedActualVersion = currentPathVersion;
-
-    if (nextVersion === selectedActualVersion) {
+    const nextOption = versionOptions.find(option => option.id === nextValue);
+    if (!nextOption) {
       return;
     }
 
-    const samePageInTargetVersion = nextVersion
-      ? joinPath(nextVersion, currentRelativePath)
-      : currentRelativePath;
+    const selectedActualVersion = currentVersion.selected;
+
+    if (nextOption.id === selectedActualVersion.id) {
+      return;
+    }
+
+    const samePageInTargetVersion = joinPath(
+      nextOption.prefix,
+      currentVersion.relativePath,
+    );
 
     try {
-      const hasEquivalentPage = currentRelativePath
+      const hasEquivalentPage = currentVersion.relativePath
         ? await fileExistsForVersionPath(samePageInTargetVersion)
         : true;
 
-      const destinationPath = hasEquivalentPage ? currentRelativePath : '';
+      const destinationPath = hasEquivalentPage
+        ? currentVersion.relativePath
+        : '';
 
       if (!hasEquivalentPage) {
         alertApi.post({
@@ -246,7 +262,7 @@ export const TechDocsVersionsAddon = () => {
         entityRef.namespace,
         entityRef.kind,
         entityRef.name,
-        nextVersion,
+        nextOption.prefix,
         destinationPath,
       );
       const pathname = `/${targetPath}`;
@@ -266,7 +282,7 @@ export const TechDocsVersionsAddon = () => {
     }
   };
 
-  if (!versions.length) {
+  if (!versionOptions.length) {
     return null;
   }
 
@@ -278,19 +294,23 @@ export const TechDocsVersionsAddon = () => {
         value={selectedValue}
         displayEmpty
         renderValue={value => {
-          const stringValue = String(value ?? ROOT_VERSION_VALUE);
-          return stringValue === ROOT_VERSION_VALUE
-            ? ROOT_VERSION_LABEL
-            : stringValue;
+          const selectedOption = versionOptions.find(
+            option => option.id === value,
+          );
+          if (!selectedOption) {
+            return ROOT_VERSION_LABEL;
+          }
+
+          return selectedOption.label;
         }}
         onChange={event => {
           void handleVersionChange(String(event.target.value));
         }}
         label="Version"
       >
-        {versionOptions.map(version => (
-          <MenuItem key={version} value={version}>
-            {version === ROOT_VERSION_VALUE ? ROOT_VERSION_LABEL : version}
+        {versionOptions.map(option => (
+          <MenuItem key={option.id} value={option.id}>
+            {option.label}
           </MenuItem>
         ))}
       </Select>
