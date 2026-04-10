@@ -69,6 +69,23 @@ const joinPath = (...parts: string[]) =>
     .filter(Boolean)
     .join('/');
 
+const getBaseDocsPathname = (pathname: string, currentPath: string) => {
+  const normalizedCurrentPath = trimSlashes(currentPath);
+  if (!normalizedCurrentPath) {
+    return trimTrailingSlashes(pathname);
+  }
+
+  const trimmedPathname = trimTrailingSlashes(pathname);
+  const suffix = `/${normalizedCurrentPath}`;
+
+  if (!trimmedPathname.endsWith(suffix)) {
+    return trimmedPathname;
+  }
+
+  const base = trimmedPathname.slice(0, -suffix.length);
+  return base || '/';
+};
+
 const toIndexPath = (path: string) => {
   const normalizedPath = trimSlashes(path);
   if (!normalizedPath) {
@@ -200,6 +217,11 @@ export const TechDocsVersionsAddon = () => {
     [currentPath, versionOptions],
   );
 
+  const baseDocsPathname = useMemo(
+    () => getBaseDocsPathname(location.pathname, currentPath),
+    [currentPath, location.pathname],
+  );
+
   const selectedValue = currentVersion.selected.id;
 
   const buildUrl = (pathname: string, hash: string) => {
@@ -258,10 +280,7 @@ export const TechDocsVersionsAddon = () => {
       }
 
       const targetPath = joinPath(
-        '/docs',
-        entityRef.namespace,
-        entityRef.kind,
-        entityRef.name,
+        baseDocsPathname,
         nextOption.prefix,
         destinationPath,
       );
@@ -276,7 +295,7 @@ export const TechDocsVersionsAddon = () => {
         display: 'transient',
       });
 
-      const pathname = `/docs/${entityRef.namespace}/${entityRef.kind}/${entityRef.name}`;
+      const pathname = baseDocsPathname;
       const targetUrl = buildUrl(pathname, location.hash);
       window.location.assign(targetUrl);
     }
